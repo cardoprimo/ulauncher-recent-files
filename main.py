@@ -60,68 +60,70 @@ def get_icon_for_file(path, size=256):
     return DEFAULT_ICON
 
 def search_recent_files(search_term, file_type=None):
-    recent_files = collections.deque()
 
-    possible_locations = [
-    "~/.local/share/recently-used.xbel",
-    "~/.gnome2/recently-used.xbel",
-    "~/.kde/share/apps/RecentDocuments/recently-used.xbel",
-    "~/.xfce4/recently-used.xbel"
-]
+recent_files = Gtk.RecentManager.get_default().get_items()
+    # recent_files = collections.deque()
 
-    xbel_file = next((os.path.expanduser(location) for location in possible_locations if os.path.exists(os.path.expanduser(location))), None)
+#     possible_locations = [
+#     "~/.local/share/recently-used.xbel",
+#     "~/.gnome2/recently-used.xbel",
+#     "~/.kde/share/apps/RecentDocuments/recently-used.xbel",
+#     "~/.xfce4/recently-used.xbel"
+# ]
 
-    if xbel_file is None:
-        raise FileNotFoundError('No recently-used.xbel file found')
+#     xbel_file = next((os.path.expanduser(location) for location in possible_locations if os.path.exists(os.path.expanduser(location))), None)
 
-    # Parse the XML file
+#     if xbel_file is None:
+#         raise FileNotFoundError('No recently-used.xbel file found')
+
+#     # Parse the XML file
     
-    try:
-        tree = ET.parse(xbel_file)
-        root = tree.getroot()
-    except ET.ParseError as e:
-        raise RuntimeError(f"Error parsing XBEL file: {e}")
+#     try:
+#         tree = ET.parse(xbel_file)
+#         root = tree.getroot()
+#     except ET.ParseError as e:
+#         raise RuntimeError(f"Error parsing XBEL file: {e}")
 
-    # Iterate over the <bookmark> elements
-    for bookmark in root.findall('bookmark'):
-        # Get the file path
-        file_path = Path(unquote(bookmark.attrib.get('href').removeprefix('file://')))
+#     # Iterate over the <bookmark> elements
+#     for bookmark in root.findall('bookmark'):
+#         # Get the file path
+#         file_path = Path(unquote(bookmark.attrib.get('href').removeprefix('file://')))
         
-        # Check if the file still exists
-        if not file_path.exists():
-            continue
+#         # Check if the file still exists
+#         if not file_path.exists():
+#             continue
 
-        # Check if file_type is specified and matches the file type
-        if file_type is not None:
-            if file_type == 'f' and not file_path.is_file():
-                continue
-            elif file_type == 'd' and not file_path.is_dir():
-                continue
-            elif file_type in ['v','i','a']:
-                mime_type = mimetypes.guess_type(file_path)[0]
-                if not mime_type:
-                    continue
-                elif file_type == 'i':
-                    if not mime_type.startswith('image/'):
-                        continue
-                elif file_type == 'v':
-                    if not mime_type.startswith('video/'):
-                        continue
-                elif file_type == 'a':
-                    if not mime_type.startswith('audio/'):
-                        continue
+#         # Check if file_type is specified and matches the file type
+#         if file_type is not None:
+#             if file_type == 'f' and not file_path.is_file():
+#                 continue
+#             elif file_type == 'd' and not file_path.is_dir():
+#                 continue
+#             elif file_type in ['v','i','a']:
+#                 mime_type = mimetypes.guess_type(file_path)[0]
+#                 if not mime_type:
+#                     continue
+#                 elif file_type == 'i':
+#                     if not mime_type.startswith('image/'):
+#                         continue
+#                 elif file_type == 'v':
+#                     if not mime_type.startswith('video/'):
+#                         continue
+#                 elif file_type == 'a':
+#                     if not mime_type.startswith('audio/'):
+#                         continue
             
 
-        # Check if the file path matches the search term
-        if search_term in file_path.name.lower():
-            if len(search_term) > 2:
-                logger.info('Found recent file: %s', file_path)
-            recent_files.append(file_path)
+#         # Check if the file path matches the search term
+#         if search_term in file_path.name.lower():
+#             if len(search_term) > 2:
+#                 logger.info('Found recent file: %s', file_path)
+#             recent_files.append(file_path)
 
 
-    recent_files = list(reversed(recent_files))
+#     recent_files = list(reversed(recent_files))
 
-    logger.info('Recent files found: %s', len(recent_files))
+#     logger.info('Recent files found: %s', len(recent_files))
 
     return recent_files
 
