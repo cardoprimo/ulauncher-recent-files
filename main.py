@@ -2,15 +2,14 @@ import logging
 import os
 import collections
 import mimetypes
+import fnmatch
 from urllib.parse import unquote
 
-from pathlib import Path
+from pathlib import Path, PurePath
 from ulauncher.api.client.Extension import Extension
 from ulauncher.api.client.EventListener import EventListener
 from ulauncher.api.shared.event import ( 
     KeywordQueryEvent, 
-    PreferencesEvent, 
-    PreferencesUpdateEvent,
 )
 
 from ulauncher.api.shared.item.ExtensionSmallResultItem import ExtensionSmallResultItem
@@ -132,13 +131,31 @@ class RecentFilesExtension(Extension):
     def __init__(self):
         super(RecentFilesExtension, self).__init__()
         self.subscribe(KeywordQueryEvent, KeywordQueryEventListener())
-        self.subscribe(PreferencesEvent, PreferencesEventListener())
-        self.subscribe(PreferencesUpdateEvent, PreferencesEventListener())
 
 
 class KeywordQueryEventListener(EventListener):
 
+    def _is_path_excluded(self, path, excluded_patterns):
+        """Check if path matches any of the excluded patterns."""
+        path_str = str(path.absolute())
+        for pattern in excluded_patterns:
+            pattern = pattern.strip()
+            if not pattern:
+                continue
+            # Convert glob pattern to regex and match against full path
+            if fnmatch.fnmatch(path_str, pattern) or \
+               fnmatch.fnmatch(path_str, f"{pattern}/*") or \
+               any(fnmatch.fnmatch(str(p), pattern) for p in path.parents):
+                return True
+        return False
+
     def on_event(self, event, extension):
+        excluded_dirs = [p.strip() for p in extension.preferences["excluded_dirs"].split(",") if p.strip()]
+        excluded_patterns = [
+            os.path.expanduser(pattern) if pattern.startswith("~") else pattern 
+            for pattern in excluded_dirs
+        ]
+        logger.info('Excluded patterns: %s', excluded_patterns)
         items = []
         arguments = event.get_argument() or ""
 
@@ -169,6 +186,10 @@ class KeywordQueryEventListener(EventListener):
             return RenderResultListAction(items)
 
         for recent_file in recent_files[:20]:
+            if self._is_path_excluded(recent_file, excluded_patterns):
+                logger.info("Excluded file: %s", recent_file)
+                continue
+                
             file_name = recent_file.name
             items.append(ExtensionSmallResultItem(icon=get_icon_for_file(recent_file),
                                              name=file_name,
@@ -176,16 +197,6 @@ class KeywordQueryEventListener(EventListener):
 
         return RenderResultListAction(items)
 
-
-class PreferencesEventListener(EventListener):
-	def on_event(self, event, extension):
-		extension.keyword = event.preferences["recents_kw"]
-
-
-class PreferencesUpdateEventListener(EventListener):
-	def on_event(self, event, extension):
-		if event.id == "recents_kw":
-			extension.keyword = event.new_value
 
 if __name__ == '__main__':
     RecentFilesExtension().run()
