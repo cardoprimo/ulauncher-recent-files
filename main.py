@@ -1,22 +1,14 @@
 import logging
-import os
-import collections
-import mimetypes
-from urllib.parse import unquote
-
 from pathlib import Path
 from ulauncher.api.client.Extension import Extension
 from ulauncher.api.client.EventListener import EventListener
 from ulauncher.api.shared.event import ( 
     KeywordQueryEvent, 
-    PreferencesEvent, 
-    PreferencesUpdateEvent,
 )
 
 from ulauncher.api.shared.item.ExtensionSmallResultItem import ExtensionSmallResultItem
 from ulauncher.api.shared.action.RenderResultListAction import RenderResultListAction
 from ulauncher.api.shared.action.OpenAction import OpenAction
-import xml.etree.ElementTree as ET
 
 try:
     from gi.repository import Gtk, Gio
@@ -34,12 +26,14 @@ IMAGE_EXTENSIONS = (
 
 logger = logging.getLogger(__name__)
 
-def get_icon_for_file(path, size=256):
+def get_icon_for_file(file, size=256):
     """
     Get the gtk icon path for a specific file or folder (defined by its path).
     """
-    if path.name.lower().endswith(IMAGE_EXTENSIONS):
-        return str(path)
+    path = Path(file.get_uri())
+    
+    if path.as_posix().lower().endswith(IMAGE_EXTENSIONS):
+        return file.get_uri_display()
 
     if Gtk is not None:
         try: 
@@ -59,73 +53,27 @@ def get_icon_for_file(path, size=256):
 
     return DEFAULT_ICON
 
-def search_recent_files(search_term, file_type=None):
+def search_recent_files(search_term, mime_type=None):
 
-recent_files = Gtk.RecentManager.get_default().get_items()
-    # recent_files = collections.deque()
+    recent_files = Gtk.RecentManager.get_default().get_items()
 
-#     possible_locations = [
-#     "~/.local/share/recently-used.xbel",
-#     "~/.gnome2/recently-used.xbel",
-#     "~/.kde/share/apps/RecentDocuments/recently-used.xbel",
-#     "~/.xfce4/recently-used.xbel"
-# ]
-
-#     xbel_file = next((os.path.expanduser(location) for location in possible_locations if os.path.exists(os.path.expanduser(location))), None)
-
-#     if xbel_file is None:
-#         raise FileNotFoundError('No recently-used.xbel file found')
-
-#     # Parse the XML file
+    if not recent_files:
+        raise FileNotFoundError('No recent files found')
     
-#     try:
-#         tree = ET.parse(xbel_file)
-#         root = tree.getroot()
-#     except ET.ParseError as e:
-#         raise RuntimeError(f"Error parsing XBEL file: {e}")
+    if mime_type is not None:
+    # Split the MIME type into type and subtype
+        type_part, _, subtype_part = mime_type.partition('/')
+        recent_files = [
+            file for file in recent_files 
+            if file.get_mime_type() and 
+                (mime_type == file.get_mime_type() or  # Exact match
+                (subtype_part == '*' and file.get_mime_type().startswith(f"{type_part}/")))  # Wildcard match
+        ]
+    
+    if search_term:
+        recent_files = [file for file in recent_files if search_term in file.get_uri().lower()]
 
-#     # Iterate over the <bookmark> elements
-#     for bookmark in root.findall('bookmark'):
-#         # Get the file path
-#         file_path = Path(unquote(bookmark.attrib.get('href').removeprefix('file://')))
-        
-#         # Check if the file still exists
-#         if not file_path.exists():
-#             continue
-
-#         # Check if file_type is specified and matches the file type
-#         if file_type is not None:
-#             if file_type == 'f' and not file_path.is_file():
-#                 continue
-#             elif file_type == 'd' and not file_path.is_dir():
-#                 continue
-#             elif file_type in ['v','i','a']:
-#                 mime_type = mimetypes.guess_type(file_path)[0]
-#                 if not mime_type:
-#                     continue
-#                 elif file_type == 'i':
-#                     if not mime_type.startswith('image/'):
-#                         continue
-#                 elif file_type == 'v':
-#                     if not mime_type.startswith('video/'):
-#                         continue
-#                 elif file_type == 'a':
-#                     if not mime_type.startswith('audio/'):
-#                         continue
-            
-
-#         # Check if the file path matches the search term
-#         if search_term in file_path.name.lower():
-#             if len(search_term) > 2:
-#                 logger.info('Found recent file: %s', file_path)
-#             recent_files.append(file_path)
-
-
-#     recent_files = list(reversed(recent_files))
-
-#     logger.info('Recent files found: %s', len(recent_files))
-
-    return recent_files
+    return sorted(recent_files, key=lambda x: x.get_visited(), reverse=True)  
 
 
 
@@ -134,28 +82,35 @@ class RecentFilesExtension(Extension):
     def __init__(self):
         super(RecentFilesExtension, self).__init__()
         self.subscribe(KeywordQueryEvent, KeywordQueryEventListener())
-        self.subscribe(PreferencesEvent, PreferencesEventListener())
-        self.subscribe(PreferencesUpdateEvent, PreferencesEventListener())
-
 
 class KeywordQueryEventListener(EventListener):
 
     def on_event(self, event, extension):
         items = []
         arguments = event.get_argument() or ""
+        mime_type = None
+        search_term = None
 
         parts = arguments.split()
         if parts and parts[0] in ('f', 'd', 'i', 'v', 'a'):
-            file_type = parts[0]
+            search_type = parts[0]
+            if search_type == 'f':
+                mime_type = 'text/*'
+            elif search_type == 'd':
+                mime_type = 'inode/directory'
+            elif search_type == 'i':
+                mime_type = 'image/*'
+            elif search_type == 'v':
+                mime_type = 'video/*'
+            elif search_type == 'a':
+                mime_type = 'audio/*'
             search_term = ' '.join(parts[1:]).lower() if len(parts) > 1 else ''
         else:
-            file_type = None
+            mime_type = None
             search_term = arguments.lower()
 
-        logger.info('file_type: %s | search_term: %s', file_type, search_term)
-
         try:
-            recent_files = search_recent_files(search_term, file_type)
+            recent_files = search_recent_files(search_term, mime_type)
         except FileNotFoundError as e:
             logger.error(e)
             items.append(ExtensionSmallResultItem(icon=DEFAULT_ICON, name='No recently-used.xbel found'))
@@ -166,28 +121,18 @@ class KeywordQueryEventListener(EventListener):
             return RenderResultListAction(items)
 
         if not recent_files:
-            logger.error('No recent files found')
             items.append(ExtensionSmallResultItem(icon=DEFAULT_ICON, name='No recent files found'))
             return RenderResultListAction(items)
 
         for recent_file in recent_files[:20]:
-            file_name = recent_file.name
-            items.append(ExtensionSmallResultItem(icon=get_icon_for_file(recent_file),
+            file_name = recent_file.get_display_name()
+            file_path = recent_file.get_uri_display()
+            items.append(ExtensionSmallResultItem(icon=(get_icon_for_file(recent_file)),
                                              name=file_name,
-                                             on_enter=OpenAction(recent_file)))
+                                             on_enter=OpenAction(file_path)))
 
         return RenderResultListAction(items)
 
-
-class PreferencesEventListener(EventListener):
-	def on_event(self, event, extension):
-		extension.keyword = event.preferences["recents_kw"]
-
-
-class PreferencesUpdateEventListener(EventListener):
-	def on_event(self, event, extension):
-		if event.id == "recents_kw":
-			extension.keyword = event.new_value
 
 if __name__ == '__main__':
     RecentFilesExtension().run()
