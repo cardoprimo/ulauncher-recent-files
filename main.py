@@ -1,5 +1,9 @@
 import logging
-from pathlib import Path
+import os
+from urllib.parse import unquote
+import fnmatch
+
+from pathlib import Path, PurePath
 from ulauncher.api.client.Extension import Extension
 from ulauncher.api.client.EventListener import EventListener
 from ulauncher.api.shared.event import ( 
@@ -83,9 +87,30 @@ class RecentFilesExtension(Extension):
         super(RecentFilesExtension, self).__init__()
         self.subscribe(KeywordQueryEvent, KeywordQueryEventListener())
 
+
 class KeywordQueryEventListener(EventListener):
 
+    def _is_path_excluded(self, path, excluded_patterns):
+        """Check if path matches any of the excluded patterns."""
+        path_str = str(path)
+        for pattern in excluded_patterns:
+            pattern = pattern.strip()
+            if not pattern:
+                continue
+            # Convert glob pattern to regex and match against full path
+            if fnmatch.fnmatch(path_str, pattern) or \
+               fnmatch.fnmatch(path_str, f"{pattern}/*") or \
+               any(fnmatch.fnmatch(str(p), pattern) for p in path.parents):
+                return True
+        return False
+
     def on_event(self, event, extension):
+        excluded_dirs = [p.strip() for p in extension.preferences["excluded_dirs"].split(",") if p.strip()]
+        excluded_patterns = [
+            os.path.expanduser(pattern) if pattern.startswith("~") else pattern 
+            for pattern in excluded_dirs
+        ]
+        logger.info('Excluded patterns: %s', excluded_patterns)
         items = []
         arguments = event.get_argument() or ""
         mime_type = None
@@ -126,7 +151,10 @@ class KeywordQueryEventListener(EventListener):
 
         for recent_file in recent_files[:20]:
             file_name = recent_file.get_display_name()
-            file_path = recent_file.get_uri_display()
+            file_path = recent_file.get_uri()
+            if self._is_path_excluded(PurePath(file_path), excluded_patterns):
+                continue
+                
             items.append(ExtensionSmallResultItem(icon=(get_icon_for_file(recent_file)),
                                              name=file_name,
                                              on_enter=OpenAction(file_path)))
