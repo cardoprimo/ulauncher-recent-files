@@ -13,6 +13,13 @@
       "type": "keyword",
       "name": "Recents",
       "default_value": "r"
+    },
+    {
+      "id": "excluded_dirs",
+      "type": "input",
+      "name": "Glob Pattern Exclusion",
+      "description": "Comma separated list of glob patterns to exclude from the search, e.g. [*/tmp, ~/dev, *.txt]",
+      "default_value": ""
     }
   ]
 }
